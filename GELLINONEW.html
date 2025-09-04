@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Gellino – Gestão de Estoque de Gelo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body class="bg-gray-100">
+  <div class="container mx-auto py-8">
+    <!-- Cabeçalho -->
+    <div class="card mb-8 text-center bg-gradient-to-r from-blue-500 to-blue-400 text-white flex items-center justify-center p-8 rounded-2xl shadow-xl">
+      <img src="https://raw.githubusercontent.com/mldgpsenaigellino/gellino/main/Gellino0.png" alt="Gellino Logo" class="w-20 h-20 mr-4 rounded-full">
+      <div>
+        <h1 class="text-4xl font-bold">Gellino</h1>
+        <p class="mt-2 text-xl font-light">Gestão de Estoque de Gelo</p>
+      </div>
+    </div>
+
+    <!-- Formulário -->
+    <div class="card mb-8">
+      <h2 class="text-2xl font-semibold mb-6 text-center text-gray-800">Novo Lançamento</h2>
+      <form id="lancamentoForm" class="grid sm:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
+        <div>
+          <label for="tipo">Tipo</label>
+          <select id="tipo" name="tipo" required>
+            <option value="entrada">Entrada</option>
+            <option value="saida">Saída</option>
+            <option value="estorno">Estorno</option>
+            <option value="perda">Perda</option>
+          </select>
+        </div>
+        <div class="lg:col-span-2">
+          <label for="colaborador">Colaborador</label>
+          <input type="text" id="colaborador" name="colaborador" placeholder="Seu nome" required>
+        </div>
+        <div>
+          <label for="produto">Produto</label>
+          <select id="produto" name="produto" required>
+            <option value="25 KG">25 KG</option>
+            <option value="12 KG">12 KG</option>
+            <option value="5 KG">5 KG</option>
+            <option value="3 KG">3 KG</option>
+            <option value="1 KG">1 KG</option>
+          </select>
+        </div>
+        <div>
+          <label for="quantidade">Quantidade</label>
+          <input type="number" id="quantidade" name="quantidade" min="1" required>
+        </div>
+        <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded-lg">Lançar</button>
+      </form>
+    </div>
+
+    <!-- Botões extras -->
+    <div class="flex justify-center gap-4 mb-8">
+      <button id="btnExportar" class="bg-green-500 text-white px-4 py-2 rounded-lg">Exportar CSV</button>
+      <button id="btnLimpar" class="bg-red-500 text-white px-4 py-2 rounded-lg">Limpar Histórico</button>
+    </div>
+
+    <!-- Gráfico -->
+    <div class="card mb-8">
+      <h2 class="text-2xl font-semibold mb-6 text-center text-gray-800">Gráfico</h2>
+      <canvas id="movimentacoesChart"></canvas>
+    </div>
+
+    <!-- Histórico -->
+    <div class="card">
+      <h2 class="text-2xl font-semibold mb-6 text-gray-800">Histórico de Movimentações</h2>
+      <div class="overflow-x-auto">
+        <table id="tabelaMovimentacoes" class="min-w-full divide-y divide-gray-200">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Tipo</th>
+              <th>Produto</th>
+              <th>Quantidade</th>
+              <th>Colaborador</th>
+            </tr>
+          </thead>
+          <tbody id="movimentacoesBody"></tbody>
+        </table>
+      </div>
+      <div id="no-data" class="text-center text-gray-500 py-8 hidden">
+        Nenhuma movimentação registrada ainda.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = "https://script.google.com/macros/s/AKfycbxyZ3ebcv94NQg4FZyqVFYdcSgadFXwXlEcU9nbnZp4lm9CU2iKshAUN5WvxjvArAk/exec";
+
+    const form = document.getElementById("lancamentoForm");
+    const btnExportar = document.getElementById("btnExportar");
+    const btnLimpar = document.getElementById("btnLimpar");
+    const tabelaBody = document.getElementById("movimentacoesBody");
+    const noDataMessage = document.getElementById("no-data");
+    const chartCanvas = document.getElementById("movimentacoesChart");
+    let chartInstance = null;
+
+    async function addLancamento(tipo, colaborador, produto, quantidade) {
+      const payload = { tipo, colaborador, produto, quantidade: parseInt(quantidade) };
+      try {
+        await fetch(API_URL, { method: "POST", body: JSON.stringify(payload), headers: { "Content-Type": "application/json" } });
+        alert("Lançamento registrado!");
+        carregarDados();
+      } catch (error) {
+        console.error("Erro:", error);
+        alert("Erro ao registrar!");
+      }
+    }
+
+    async function carregarDados() {
+      try {
+        const response = await fetch(API_URL);
+        const movimentacoes = await response.json();
+
+        // Caso venha erro do servidor (ex.: aba Movimentacoes não existe)
+        if (movimentacoes.error) {
+          tabelaBody.innerHTML = "";
+          noDataMessage.classList.remove("hidden");
+          noDataMessage.textContent = movimentacoes.error;
+          return;
+        }
+
+        movimentacoes.forEach(m => m.data = new Date(m.data));
+        renderizarMovimentacoes(movimentacoes);
+        renderizarGrafico(movimentacoes);
+      } catch (error) {
+        console.error("Erro ao carregar dados:", error);
+        tabelaBody.innerHTML = "";
+        noDataMessage.classList.remove("hidden");
+        noDataMessage.textContent = "Erro ao carregar dados da planilha.";
+      }
+    }
+
+    function renderizarMovimentacoes(movimentacoes) {
+      tabelaBody.innerHTML = "";
+      if (movimentacoes.length === 0) {
+        noDataMessage.classList.remove("hidden");
+        noDataMessage.textContent = "Nenhuma movimentação registrada ainda.";
+        return;
+      }
+      noDataMessage.classList.add("hidden");
+      movimentacoes.forEach(m => {
+        const date = m.data;
+        const row = `<tr>
+          <td>${date.toLocaleDateString("pt-BR")} ${date.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</td>
+          <td>${m.tipo}</td>
+          <td>${m.produto}</td>
+          <td>${m.quantidade}</td>
+          <td>${m.colaborador}</td>
+        </tr>`;
+        tabelaBody.innerHTML += row;
+      });
+    }
+
+    function renderizarGrafico(movimentacoes) {
+      if (chartInstance) chartInstance.destroy();
+      const produtos = [...new Set(movimentacoes.map(m => m.produto))];
+      const entradas = produtos.map(prod => movimentacoes.filter(m => m.tipo === "entrada" && m.produto === prod).reduce((s,m) => s + m.quantidade, 0));
+      const saidas = produtos.map(prod => movimentacoes.filter(m => m.tipo === "saida" && m.produto === prod).reduce((s,m) => s + m.quantidade, 0));
+      chartInstance = new Chart(chartCanvas, {
+        type: "bar",
+        data: { labels: produtos, datasets: [
+          { label: "Entradas", data: entradas, backgroundColor: "#10B981" },
+          { label: "Saídas", data: saidas, backgroundColor: "#EF4444" }
+        ]},
+        options: { responsive: true, plugins: { legend: { position: "top" } } }
+      });
+    }
+
+    function exportarCSV() {
+      const rows = [["Data","Tipo","Produto","Quantidade","Colaborador"]];
+      document.querySelectorAll("#tabelaMovimentacoes tr").forEach(tr => {
+        const cols = Array.from(tr.querySelectorAll("td")).map(td => td.textContent);
+        if (cols.length) rows.push(cols);
+      });
+      const csvContent = rows.map(r => r.map(c => `"${c.replace(/"/g,'""')}"`).join(",")).join("\r\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `movimentacoes_${new Date().toISOString().slice(0,10)}.csv`);
+      link.click();
+    }
+
+    async function limparHistorico() {
+      const confirmation = confirm("Tem certeza que deseja limpar todo o histórico?");
+      if (!confirmation) return;
+
+      const payload = { action: "clear" };
+      try {
+        await fetch(API_URL, { method: "POST", body: JSON.stringify(payload), headers: { "Content-Type": "application/json" } });
+        alert("Histórico limpo!");
+        carregarDados();
+      } catch (error) {
+        console.error("Erro ao limpar histórico:", error);
+        alert("Erro ao limpar histórico!");
+      }
+    }
+
+    form.addEventListener("submit", e => {
+      e.preventDefault();
+      addLancamento(
+        document.getElementById("tipo").value,
+        document.getElementById("colaborador").value,
+        document.getElementById("produto").value,
+        document.getElementById("quantidade").value
+      );
+      form.reset();
+    });
+
+    btnExportar.addEventListener("click", exportarCSV);
+    btnLimpar.addEventListener("click", limparHistorico);
+    window.addEventListener("load", carregarDados);
+  </script>
+</body>
+</html>
